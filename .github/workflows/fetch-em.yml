@@ -40,8 +40,9 @@ jobs:
           WANT_MINUTE: ${{ github.event.inputs.minute || '1' }}
         run: python fetch_all.py
       - uses: actions/upload-artifact@v4
+        if: always()   # 即使脚本尾部出错,已写盘的parquet也要保住
         with:
           name: em-shard${{ matrix.shard }}
           path: out/
           retention-days: 20
-          if-no-files-found: error
+          if-no-files-found: ignore
