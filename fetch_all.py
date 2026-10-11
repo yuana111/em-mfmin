@@ -21,6 +21,7 @@ SHARD = int(os.environ.get("SHARD", 0))
 NSHARD = int(os.environ.get("NSHARD", 1))
 WANT_MINUTE = os.environ.get("WANT_MINUTE", "1") != "0"
 API = "https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get"
+API2 = "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get"  # 分钟档备用域(周日仍可返T-1)
 HDR = {"Referer": "https://quote.eastmoney.com",
        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 RATE = 0.34
@@ -67,19 +68,23 @@ def parse_klines(kl, klt):
 
 
 def fetch_one(secid, klt, lmt):
-    """直连东财; 3次失败后走 r.jina.ai 中转兜底(海外可达,但限流,尽力而为)"""
+    """直连东财(push2his→push2→r.jina.ai 三级), 返回行列表或None"""
     params = {"secid": secid, "fields1": "f1,f2,f3,f7",
               "fields2": "f51,f52,f53,f54,f55,f56",
               "klt": str(klt), "lmt": str(lmt)}
-    for attempt in range(2):
-        try:
-            r = S.get(API, params=params, timeout=10)
-            kl = (r.json().get("data") or {}).get("klines") or []
-            return parse_klines(kl, klt)
-        except Exception:
-            if attempt == 1:
-                break
-            time.sleep(1.0)
+    last_err = None
+    for base in ([API, API2] if klt == 1 else [API]):
+        for attempt in range(2):
+            try:
+                r = S.get(base, params=params, timeout=10)
+                kl = (r.json().get("data") or {}).get("klines")
+                # klt=1: 空列表继续试下一域(周末push2his清空但push2可能有T-1)
+                ok = (len(kl) > 0) if klt == 1 else (kl is not None)
+                if ok:
+                    return parse_klines(kl or [], klt)
+            except Exception as e:
+                last_err = e
+                time.sleep(1.0)
     # jina 兜底
     try:
         qs = "&".join(f"{k}={v}" for k, v in params.items())
