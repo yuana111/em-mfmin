@@ -3,8 +3,8 @@ on:
   workflow_dispatch:
     inputs:
       nshard:
-        description: '分片数(默认5)'
-        default: '5'
+        description: '分片数(默认16)'
+        default: '16'
       minute:
         description: '是否抓分钟档klt=1 (1/0)'
         default: '1'
@@ -22,11 +22,11 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,7 +36,7 @@ jobs:
       - name: run shard ${{ matrix.shard }}
         env:
           SHARD: ${{ matrix.shard }}
-          NSHARD: ${{ github.event.inputs.nshard || '5' }}
+          NSHARD: ${{ github.event.inputs.nshard || '16' }}
           WANT_MINUTE: ${{ github.event.inputs.minute || '1' }}
         run: python fetch_all.py
       - uses: actions/upload-artifact@v4
