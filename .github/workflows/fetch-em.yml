@@ -1,0 +1,57 @@
+name: fetch-em
+on:
+  workflow_dispatch:
+    inputs:
+      nshard:
+        description: '分片数(默认5)'
+        default: '5'
+      minute:
+        description: '是否抓分钟档klt=1 (1/0)'
+        default: '1'
+  schedule:
+    # 北京时间 15:35 (周一~五), 收盘后抓当日分钟+日线滚动窗
+    - cron: '35 7 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fetch-em
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --quiet requests pandas pyarrow
+      - name: run shard ${{ matrix.shard }}
+        env:
+          SHARD: ${{ matrix.shard }}
+          NSHARD: ${{ github.event.inputs.nshard || '5' }}
+          WANT_MINUTE: ${{ github.event.inputs.minute || '1' }}
+        run: |
+          if [ "$WANT_MINUTE" = "0" ]; then
+            python - <<'PY'
+            import os
+            src = open('fetch_all.py').read()
+            src = src.replace('r1 = fetch_one(secid, 1, 0)', 'r1 = None')
+            open('fetch_all_patched.py','w').write(src)
+            PY
+            mv fetch_all_patched.py fetch_all.py
+          fi
+          python fetch_all.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: em-shard${{ matrix.shard }}
+          path: out/
+          retention-days: 20
+          if-no-files-found: error
