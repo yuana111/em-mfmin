@@ -59,7 +59,7 @@ def parse_klines(kl, klt):
         if len(p) < 6:
             continue
         if klt == 1:
-            tm, d = p[0].split(" ")
+            d, tm = p[0].split(" ")
             rows.append((d.replace("-", ""), int(tm.replace(":", "")[:4])))
         else:
             rows.append((p[0].replace("-", ""), 0))
