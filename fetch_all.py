@@ -135,6 +135,7 @@ def run_batch(todo):
 
 
 def main():
+    T0 = time.time()
     todo = all_codes()[SHARD::NSHARD]
     print(f"shard {SHARD}/{NSHARD}: {len(todo)} codes", flush=True)
     os.makedirs("out", exist_ok=True)
@@ -161,7 +162,7 @@ def main():
     with open(f"out/failures_shard{SHARD}.txt", "w") as f:
         f.write("\n".join(fails))
     print(f"DONE shard{SHARD}: min={len(rows_min)} day={len(rows_day)} fail={len(fails)} "
-          f"{time.time()-t0:.0f}s", flush=True)
+          f"{time.time()-T0:.0f}s", flush=True)
 
 
 if __name__ == "__main__":
