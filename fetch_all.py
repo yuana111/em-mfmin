@@ -24,7 +24,8 @@ API = "https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get"
 API2 = "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get"  # 分钟档备用域(周日仍可返T-1)
 HDR = {"Referer": "https://quote.eastmoney.com",
        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-RATE = 0.34
+RATE = 0.5
+THREADS = 2
 
 S = requests.Session()
 S.headers.update(HDR)
@@ -98,6 +99,8 @@ def fetch_one(secid, klt, lmt):
                 t = t.rstrip()[:-3]
         d = json.loads(t.strip())
         kl = (d.get("data") or {}).get("klines") or []
+        if kl:
+            print(f"    jina OK {secid} klt={klt}", flush=True)
         return parse_klines(kl, klt)
     except Exception:
         return None
@@ -112,13 +115,10 @@ def work(item):
     return code, r1, r2
 
 
-def main():
-    todo = all_codes()[SHARD::NSHARD]
-    print(f"shard {SHARD}/{NSHARD}: {len(todo)} codes", flush=True)
-    os.makedirs("out", exist_ok=True)
+def run_batch(todo):
     rows_min, rows_day, fails = [], [], []
     t0 = time.time()
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=THREADS) as ex:
         futs = {ex.submit(work, it): it for it in todo}
         for i, fut in enumerate(as_completed(futs), 1):
             code, r1, r2 = fut.result()
@@ -131,6 +131,23 @@ def main():
             if i % 100 == 0:
                 print(f"  {i}/{len(todo)} min={len(rows_min)} day={len(rows_day)} "
                       f"fail={len(fails)} {time.time()-t0:.0f}s", flush=True)
+    return rows_min, rows_day, fails
+
+
+def main():
+    todo = all_codes()[SHARD::NSHARD]
+    print(f"shard {SHARD}/{NSHARD}: {len(todo)} codes", flush=True)
+    os.makedirs("out", exist_ok=True)
+    rows_min, rows_day, fails = run_batch(todo)
+    # 失败票二轮重试(等30s让节流窗口滑过)
+    if fails:
+        time.sleep(30)
+        retry = [(("1" if c[0] == "6" else "0") + "." + c, c) for c in fails]
+        print(f"retry {len(retry)} failed codes", flush=True)
+        m2, d2, f2 = run_batch(retry)
+        rows_min.extend(m2)
+        rows_day.extend(d2)
+        fails = f2
     cols = ["code", "date", "time", "zl_net", "xs_net", "zx_net", "dd_net", "cdd_net"]
     dtypes = {"code": str, "date": "int32", "time": "int32",
               "zl_net": "float64", "xs_net": "float64", "zx_net": "float64",
