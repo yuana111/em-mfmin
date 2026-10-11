@@ -1,0 +1,28 @@
+name: probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: runner ip
+        run: curl -s -m 10 https://ipinfo.io || true
+      - name: probe push2his
+        run: |
+          echo "=== klt=101 (daily) ==="
+          curl -sS -m 20 "https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get?secid=0.002564&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&klt=101&lmt=2" \
+            -H "Referer: https://quote.eastmoney.com" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o daily.json -w "http=%{http_code} size=%{size_download}\n" || echo CURL_FAIL
+          head -c 500 daily.json 2>/dev/null; echo
+          echo "=== klt=1 (minute) ==="
+          curl -sS -m 20 "https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get?secid=0.002564&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&klt=1&lmt=0" \
+            -H "Referer: https://quote.eastmoney.com" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -o minute.json -w "http=%{http_code} size=%{size_download}\n" || echo CURL_FAIL
+          head -c 600 minute.json 2>/dev/null; echo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-out
+          path: |
+            daily.json
+            minute.json
+          if-no-files-found: ignore
