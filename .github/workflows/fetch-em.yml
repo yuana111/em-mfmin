@@ -38,17 +38,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
           NSHARD: ${{ github.event.inputs.nshard || '5' }}
           WANT_MINUTE: ${{ github.event.inputs.minute || '1' }}
-        run: |
-          if [ "$WANT_MINUTE" = "0" ]; then
-            python - <<'PY'
-            import os
-            src = open('fetch_all.py').read()
-            src = src.replace('r1 = fetch_one(secid, 1, 0)', 'r1 = None')
-            open('fetch_all_patched.py','w').write(src)
-            PY
-            mv fetch_all_patched.py fetch_all.py
-          fi
-          python fetch_all.py
+        run: python fetch_all.py
       - uses: actions/upload-artifact@v4
         with:
           name: em-shard${{ matrix.shard }}
