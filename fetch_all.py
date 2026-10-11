@@ -16,6 +16,7 @@ import pandas as pd
 
 SHARD = int(os.environ.get("SHARD", 0))
 NSHARD = int(os.environ.get("NSHARD", 1))
+WANT_MINUTE = os.environ.get("WANT_MINUTE", "1") != "0"
 API = "https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get"
 HDR = {"Referer": "https://quote.eastmoney.com",
        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -83,7 +84,7 @@ def main():
     rows_min, rows_day, fails = [], [], []
     t0 = time.time()
     for i, (secid, code) in enumerate(todo, 1):
-        r1 = fetch_one(secid, 1, 0)
+        r1 = fetch_one(secid, 1, 0) if WANT_MINUTE else []
         time.sleep(RATE)
         r2 = fetch_one(secid, 101, 260)
         time.sleep(RATE)
