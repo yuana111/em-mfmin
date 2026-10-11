@@ -9,8 +9,11 @@
 字段: klines行 = "YYYY-MM-DD[ HH:MM],f52主力,f53小单,f54中单,f55大单,f56超大单" (元)
 列:   code,date(yyyymmdd int),time(HHMM int),zl_net,xs_net,zx_net,dd_net,cdd_net
 """
+import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
 import pandas as pd
 
@@ -64,17 +67,44 @@ def parse_klines(kl, klt):
 
 
 def fetch_one(secid, klt, lmt):
-    for attempt in range(3):
+    """直连东财; 3次失败后走 r.jina.ai 中转兜底(海外可达,但限流,尽力而为)"""
+    params = {"secid": secid, "fields1": "f1,f2,f3,f7",
+              "fields2": "f51,f52,f53,f54,f55,f56",
+              "klt": str(klt), "lmt": str(lmt)}
+    for attempt in range(2):
         try:
-            r = S.get(API, params={"secid": secid, "fields1": "f1,f2,f3,f7",
-                                   "fields2": "f51,f52,f53,f54,f55,f56",
-                                   "klt": str(klt), "lmt": str(lmt)}, timeout=15)
+            r = S.get(API, params=params, timeout=10)
             kl = (r.json().get("data") or {}).get("klines") or []
             return parse_klines(kl, klt)
         except Exception:
-            if attempt == 2:
-                return None
-            time.sleep(1.5)
+            if attempt == 1:
+                break
+            time.sleep(1.0)
+    # jina 兜底
+    try:
+        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        r = requests.get(f"https://r.jina.ai/{API}?{qs}", timeout=25,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        t = r.text.strip()
+        if t.startswith("```"):
+            lines = t.split("\n")
+            t = "\n".join(lines[1:])
+            if t.rstrip().endswith("```"):
+                t = t.rstrip()[:-3]
+        d = json.loads(t.strip())
+        kl = (d.get("data") or {}).get("klines") or []
+        return parse_klines(kl, klt)
+    except Exception:
+        return None
+
+
+def work(item):
+    secid, code = item
+    r1 = fetch_one(secid, 1, 0) if WANT_MINUTE else []
+    time.sleep(RATE)
+    r2 = fetch_one(secid, 101, 260)
+    time.sleep(RATE)
+    return code, r1, r2
 
 
 def main():
@@ -83,20 +113,19 @@ def main():
     os.makedirs("out", exist_ok=True)
     rows_min, rows_day, fails = [], [], []
     t0 = time.time()
-    for i, (secid, code) in enumerate(todo, 1):
-        r1 = fetch_one(secid, 1, 0) if WANT_MINUTE else []
-        time.sleep(RATE)
-        r2 = fetch_one(secid, 101, 260)
-        time.sleep(RATE)
-        if r1 is None and r2 is None:
-            fails.append(code)
-        if r1:
-            rows_min.extend([(code,) + tuple(x) for x in r1])
-        if r2:
-            rows_day.extend([(code,) + tuple(x) for x in r2])
-        if i % 200 == 0:
-            print(f"  {i}/{len(todo)} min={len(rows_min)} day={len(rows_day)} "
-                  f"fail={len(fails)} {time.time()-t0:.0f}s", flush=True)
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = {ex.submit(work, it): it for it in todo}
+        for i, fut in enumerate(as_completed(futs), 1):
+            code, r1, r2 = fut.result()
+            if not r1 and not r2:
+                fails.append(code)
+            if r1:
+                rows_min.extend([(code,) + tuple(x) for x in r1])
+            if r2:
+                rows_day.extend([(code,) + tuple(x) for x in r2])
+            if i % 100 == 0:
+                print(f"  {i}/{len(todo)} min={len(rows_min)} day={len(rows_day)} "
+                      f"fail={len(fails)} {time.time()-t0:.0f}s", flush=True)
     cols = ["code", "date", "time", "zl_net", "xs_net", "zx_net", "dd_net", "cdd_net"]
     dtypes = {"code": str, "date": "int32", "time": "int32",
               "zl_net": "float64", "xs_net": "float64", "zx_net": "float64",
